@@ -147,9 +147,9 @@ class RecordSerializer(serializers.ModelSerializer):
         super(RecordSerializer,self).is_valid(raise_exception)
         # transform the bbox data format
         if self.validated_data.get('bounding_box'):
-            bounding_box = json.loads(self.validated_data['bounding_box'])
-            bounding_box = ','.join([str(o) for o in bounding_box])
             try:
+                bounding_box = json.loads(self.validated_data['bounding_box'])
+                bounding_box = ','.join([str(o) for o in bounding_box])
                 self.validated_data['bounding_box'] = util.bbox2wktpolygon(bounding_box)
             except:
                 traceback.print_exc()
@@ -341,6 +341,7 @@ class RecordViewSet(viewsets.ModelViewSet):
             serializer = self.get_serializer(record, style_content=style_content, serialize_direction='read')
             return Response(serializer.data, status=http_status)
         except serializers.ValidationError:
+            traceback.print_exc()
             raise
         except Exception as e:
             traceback.print_exc()
