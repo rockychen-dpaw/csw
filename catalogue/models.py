@@ -27,8 +27,6 @@ http://localhost:8000/csw/server/?
 
 """
 import math
-import hashlib
-import base64
 import os
 import re
 import json
@@ -41,23 +39,27 @@ from django.db.models.signals import post_save, pre_save, post_delete, pre_delet
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
-from django.utils import timezone
 from django.core.files.storage import FileSystemStorage
+
 
 class OverwriteStorage(FileSystemStorage):
     def get_available_name(self, name, max_length=None):
         """
-        If the name already exist, remove it 
+        If the name already exist, remove it
         """
         if self.exists(name):
             self.delete(name)
         return name
 
+
 slug_re = re.compile(r'^[a-z0-9_]+$')
-validate_slug = RegexValidator(slug_re, "Slug can only contain lowercase letters, numbers and underscores", "invalid")
+validate_slug = RegexValidator(
+    slug_re,
+    "Slug can only contain lowercase letters, numbers and underscores",
+    "invalid")
 
 
-#load extra epsg
+# load extra epsg
 epsg_extra = {}
 try:
     epsgs = None
@@ -65,37 +67,39 @@ try:
         epsgs = f.read()
     epsg_re = re.compile("^<([0-9]+)>\s+(.+)\s+<>$")
     epsgs = [l.strip() for l in epsgs.splitlines()]
-    #remove empty lines, comment lines and incorrect lines
+    # remove empty lines, comment lines and incorrect lines
     epsgs = [l for l in epsgs if l and l[0] != "#"]
-    #parse each line
+    # parse each line
     for l in epsgs:
         try:
             m = epsg_re.match(l)
             if m:
                 epsg_extra["EPSG:{}".format(m.group(1))] = m.group(2)
-        except:
+        except BaseException:
             pass
-except:
+except BaseException:
     pass
+
 
 class PreviewTile(object):
     @staticmethod
-    def _preview_tile(max_tile_bbox,max_zoom, bbox):
-        #compute the tile which can cover the whole bbox
+    def _preview_tile(max_tile_bbox, max_zoom, bbox):
+        # compute the tile which can cover the whole bbox
         tile_bbox = list(max_tile_bbox)
         zoom_level = 1
         while zoom_level <= max_zoom:
             if (
-                    (bbox[0] - tile_bbox[0]  < (tile_bbox[2] - tile_bbox[0]) / 2 and bbox[2] - tile_bbox[0]  >= (tile_bbox[2] - tile_bbox[0]) / 2) or
-                    (bbox[1] - tile_bbox[1]  < (tile_bbox[3] - tile_bbox[1]) / 2 and bbox[3] - tile_bbox[1]  >= (tile_bbox[3] - tile_bbox[1]) / 2)
-                ):
+                (bbox[0] - tile_bbox[0] < (tile_bbox[2] - tile_bbox[0]) / 2 and bbox[2] - tile_bbox[0] >= (tile_bbox[2] - tile_bbox[0]) / 2) or
+                (bbox[1] - tile_bbox[1] < (tile_bbox[3] - tile_bbox[1]) /
+                 2 and bbox[3] - tile_bbox[1] >= (tile_bbox[3] - tile_bbox[1]) / 2)
+            ):
                 break
-            if bbox[0] - tile_bbox[0]  < (tile_bbox[2] - tile_bbox[0]) / 2:
+            if bbox[0] - tile_bbox[0] < (tile_bbox[2] - tile_bbox[0]) / 2:
                 tile_bbox[2] = tile_bbox[0] + (tile_bbox[2] - tile_bbox[0]) / 2
             else:
                 tile_bbox[0] = tile_bbox[0] + (tile_bbox[2] - tile_bbox[0]) / 2
 
-            if bbox[1] - tile_bbox[1]  < (tile_bbox[3] - tile_bbox[1]) / 2:
+            if bbox[1] - tile_bbox[1] < (tile_bbox[3] - tile_bbox[1]) / 2:
                 tile_bbox[3] = tile_bbox[1] + (tile_bbox[3] - tile_bbox[1]) / 2
             else:
                 tile_bbox[1] = tile_bbox[1] + (tile_bbox[3] - tile_bbox[1]) / 2
@@ -105,34 +109,34 @@ class PreviewTile(object):
 
     @staticmethod
     def EPSG_4326(bbox):
-        #compute the tile which can cover the whole bbox
-        #gridset bound [-180, -90, 180, 90]
-        return PreviewTile._preview_tile([0, -90, 180, 90],14,bbox)
+        # compute the tile which can cover the whole bbox
+        # gridset bound [-180, -90, 180, 90]
+        return PreviewTile._preview_tile([0, -90, 180, 90], 14, bbox)
 
     @staticmethod
     def EPSG_3857(bbox):
-        #compute the tile which can cover the whole bbox
-        #gridset bound [-20, 037, 508.34, -20, 037, 508.34, 20, 037, 508.34, 20, 037, 508.34]
-        return PreviewTile._preview_tile([-20037508.34, -20037508.34, 20037508.34, 20037508.34],14,bbox)
-
+        # compute the tile which can cover the whole bbox
+        # gridset bound [-20, 037, 508.34, -20, 037, 508.34, 20, 037, 508.34, 20, 037, 508.34]
+        return PreviewTile._preview_tile(
+            [-20037508.34, -20037508.34, 20037508.34, 20037508.34], 14, bbox)
 
 
 class PycswConfig(models.Model):
     language = models.CharField(max_length=10, default="en-US")
     max_records = models.IntegerField(default=10)
-    #log_level  # can use django's config
-    #log_file  # can use django's config
-    #ogc_schemas_base
-    #federated_catalogues
-    #pretty_print
-    #gzip_compress_level
-    #domain_query_type
-    #domain_counts
-    #spatial_ranking
-    transactions = models.BooleanField(default=False, 
+    # log_level  # can use django's config
+    # log_file  # can use django's config
+    # ogc_schemas_base
+    # federated_catalogues
+    # pretty_print
+    # gzip_compress_level
+    # domain_query_type
+    # domain_counts
+    # spatial_ranking
+    transactions = models.BooleanField(default=False,
                                        help_text="Enable transactions")
     allowed_ips = models.CharField(
-        max_length=255, blank=True, default="127.0.0.1", 
+        max_length=255, blank=True, default="127.0.0.1",
         help_text="IP addresses that are allowed to make transaction requests"
     )
     harvest_page_size = models.IntegerField(default=10)
@@ -142,7 +146,7 @@ class PycswConfig(models.Model):
     keywords_type = models.CharField(max_length=255)
     fees = models.CharField(max_length=100)
     access_constraints = models.CharField(max_length=255)
-    point_of_contact = models.ForeignKey("Collaborator")
+    point_of_contact = models.ForeignKey("Collaborator", on_delete=models.PROTECT)
     repository_filter = models.CharField(max_length=255, blank=True)
     inspire_enabled = models.BooleanField(default=False)
     inspire_languages = models.CharField(max_length=255, blank=True)
@@ -169,7 +173,7 @@ class Organization(models.Model):
     postal_code = models.CharField(max_length=30, blank=True)
     country = models.CharField(max_length=50, blank=True)
 
-    def __unicode__(self):
+    def __str__(self):
         return self.short_name
 
 
@@ -177,7 +181,7 @@ class Collaborator(models.Model):
     name = models.CharField(max_length=255)
     position = models.CharField(max_length=255)
     email = models.EmailField()
-    organization = models.ForeignKey(Organization, 
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT,
                                      related_name="collaborators")
     url = models.URLField(blank=True)
     phone = models.CharField(max_length=50, blank=True)
@@ -185,8 +189,9 @@ class Collaborator(models.Model):
     hours_of_service = models.CharField(max_length=50, blank=True)
     contact_instructions = models.CharField(max_length=255, blank=True)
 
-    def __unicode__(self):
+    def __str__(self):
         return "{}({})".format(self.name, self.organization.short_name)
+
 
 class Tag(models.Model):
     name = models.SlugField(max_length=255, unique=True)
@@ -195,102 +200,117 @@ class Tag(models.Model):
     def __str__(self):
         return self.name
 
-def legendFilePath(instance,filename):
-    return "catalogue/legends/{}{}".format(instance.identifier.replace(':','_').replace(" ","_"),os.path.splitext(filename)[1])
 
-def sourceLegendFilePath(instance,filename):
-    return "catalogue/legends/source/{}{}".format(instance.identifier.replace(':','_').replace(" ","_"),os.path.splitext(filename)[1])
+def legendFilePath(instance, filename):
+    return "catalogue/legends/{}{}".format(instance.identifier.replace(':',
+                                                                       '_').replace(" ", "_"), os.path.splitext(filename)[1])
+
+
+def sourceLegendFilePath(instance, filename):
+    return "catalogue/legends/source/{}{}".format(instance.identifier.replace(
+        ':', '_').replace(" ", "_"), os.path.splitext(filename)[1])
+
 
 class Record(models.Model):
     identifier = models.CharField(
         max_length=255, db_index=True, help_text="Maps to pycsw:Identifier")
-    title = models.CharField(max_length=255, null=True, blank=True, 
+    title = models.CharField(max_length=255, null=True, blank=True,
                              help_text='Maps to pycsw:Title')
     typename = models.CharField(
-        max_length=100, default="", db_index=True, blank=True, 
+        max_length=100, default="", db_index=True, blank=True,
         help_text="Maps to pycsw:Typename", editable=False
     )
     schema = models.CharField(
-        max_length=100, default="", 
+        max_length=100, default="",
         help_text="Maps to pycsw:Schema", db_index=True, blank=True, editable=False
     )
     insert_date = models.DateTimeField(
         auto_now_add=True, help_text='Maps to pycsw:InsertDate')
     xml = models.TextField(
-        default='', 
-        editable=False, 
+        default='',
+        editable=False,
         help_text=' Maps to pycsw:XML'
     )
     any_text = models.TextField(help_text='Maps to pycsw:AnyText', null=True, blank=True)
     modified = models.DateTimeField(
-        auto_now=True, 
+        auto_now=True,
         help_text='Maps to pycsw:Modified'
     )
-    bounding_box = models.TextField(null=True, blank=True, 
+    bounding_box = models.TextField(null=True, blank=True,
                                     help_text='Maps to pycsw:BoundingBox.It\'s a WKT geometry')
-    abstract = models.TextField(blank=True, null=True, 
+    abstract = models.TextField(blank=True, null=True,
                                 help_text='Maps to pycsw:Abstract')
-    keywords = models.CharField(max_length=255, blank=True, null=True, 
+    keywords = models.CharField(max_length=255, blank=True, null=True,
                                 help_text='Maps to pycsw:Keywords')
     tags = models.ManyToManyField(Tag, blank=True)
     publication_date = models.DateTimeField(
-        null=True, blank=True, 
+        null=True, blank=True,
         help_text='Maps to pycsw:PublicationDate'
     )
-    service_type = models.CharField(max_length=30, null=True, blank=True, 
+    service_type = models.CharField(max_length=30, null=True, blank=True,
                                     help_text='Maps to pycsw:ServiceType')
     service_type_version = models.CharField(
-        max_length=30, null=True, blank=True, editable=False, 
+        max_length=30, null=True, blank=True, editable=False,
         help_text='Maps to pycsw:ServiceTypeVersion'
     )
-    links = models.TextField(null=True, blank=True, editable=False, 
+    links = models.TextField(null=True, blank=True, editable=False,
                              help_text='Maps to pycsw:Links')
     crs = models.CharField(max_length=255, null=True, blank=True, help_text='Maps to pycsw:CRS')
     # Custom fields
     active = models.BooleanField(default=True, editable=False)
 
-    bbox_re = re.compile('POLYGON\s*\(\(([\+\-0-9\.]+)\s+([\+\-0-9\.]+)\s*\, \s*[\+\-0-9\.]+\s+[\+\-0-9\.]+\s*\, \s*([\+\-0-9\.]+)\s+([\+\-0-9\.]+)\s*\, \s*[\+\-0-9\.]+\s+[\+\-0-9\.]+\s*\, \s*[\+\-0-9\.]+\s+[\+\-0-9\.]+\s*\)\)')
-    legend = models.FileField(upload_to=legendFilePath, storage=OverwriteStorage(), null=True, blank=True)
-    source_legend = models.FileField(upload_to=sourceLegendFilePath, storage=OverwriteStorage(), null=True, blank=True,editable=False)
+    bbox_re = re.compile(
+        'POLYGON\s*\(\(([\+\-0-9\.]+)\s+([\+\-0-9\.]+)\s*\, \s*[\+\-0-9\.]+\s+[\+\-0-9\.]+\s*\, \s*([\+\-0-9\.]+)\s+([\+\-0-9\.]+)\s*\, \s*[\+\-0-9\.]+\s+[\+\-0-9\.]+\s*\, \s*[\+\-0-9\.]+\s+[\+\-0-9\.]+\s*\)\)')
+    legend = models.FileField(
+        upload_to=legendFilePath,
+        storage=OverwriteStorage(),
+        null=True,
+        blank=True)
+    source_legend = models.FileField(
+        upload_to=sourceLegendFilePath,
+        storage=OverwriteStorage(),
+        null=True,
+        blank=True,
+        editable=False)
 
-    @property 
+    @property
     def bbox(self):
         """
         Transform the bounding box string to bbox array
         """
-        if hasattr(self,"_bbox"):
-            return getattr(self,"_bbox")
+        if hasattr(self, "_bbox"):
+            return getattr(self, "_bbox")
         elif self.bounding_box:
             try:
                 bbox = [float(v) for v in self.bbox_re.match(self.bounding_box).groups()]
-                setattr(self,"_bbox",bbox)
+                setattr(self, "_bbox", bbox)
                 return bbox
-            except:
+            except BaseException:
                 return None
         else:
             return None
 
-    def __unicode__(self):
+    def __str__(self):
         return self.identifier
 
-    def metadata_link(self,request ):
+    def metadata_link(self, request):
         if request:
             return {
-                'endpoint': request.build_absolute_uri('/catalogue/'), 
-                'version': '2.0.2', 
-                'type': 'CSW', 
-                'link':request.build_absolute_uri('/catalogue/?version=2.0.2&service=CSW&request=GetRecordById&elementSetName=full&typenames=csw:Record&resultType=results&id={0}'.format(self.identifier))
+                'endpoint': request.build_absolute_uri('/catalogue/'),
+                'version': '2.0.2',
+                'type': 'CSW',
+                'link': request.build_absolute_uri('/catalogue/?version=2.0.2&service=CSW&request=GetRecordById&elementSetName=full&typenames=csw:Record&resultType=results&id={0}'.format(self.identifier))
             }
         else:
             return {
-                'endpoint': '{0}/catalogue/'.format(settings.BASE_URL), 
-                'version': '2.0.2', 
-                'type': 'CSW', 
-                'link':'{0}/catalogue/?version=2.0.2&service=CSW&request=GetRecordById&elementSetName=full&typenames=csw:Record&resultType=results&id={1}'.format(settings.BASE_URL, self.identifier)
+                'endpoint': '{0}/catalogue/'.format(settings.BASE_URL),
+                'version': '2.0.2',
+                'type': 'CSW',
+                'link': '{0}/catalogue/?version=2.0.2&service=CSW&request=GetRecordById&elementSetName=full&typenames=csw:Record&resultType=results&id={1}'.format(settings.BASE_URL, self.identifier)
             }
 
     @property
-    def ows_resource(self ):
+    def ows_resource(self):
         """
         Get ows resource array from ows links in links column
         """
@@ -305,9 +325,9 @@ class Record(models.Model):
             elif 'WFS' in r['protocol']:
                 _type = 'WFS'
             resource = {
-                'type': _type, 
-                'version': r['version'], 
-                'endpoint': r['linkage'], 
+                'type': _type,
+                'version': r['version'],
+                'endpoint': r['linkage'],
                 'link': sample_link
             }
             resource.update(r)
@@ -322,7 +342,7 @@ class Record(models.Model):
             links = self.links.split('^')
         else:
             links = []
-        if _type =='style':
+        if _type == 'style':
             style_links = []
             for link in links:
                 r = re.split("\t", link)
@@ -353,10 +373,10 @@ class Record(models.Model):
         Get array of ows links from links column
         """
         return self.get_resource_links('ows')
-    
+
     def generate_ows_link(self, endpoint, service_type, service_version):
         """
-        Return a string ows link 
+        Return a string ows link
         """
         if service_version in ("1.1.0", "1.1"):
             service_version = "1.1.0"
@@ -367,25 +387,31 @@ class Record(models.Model):
 
         endpoint = endpoint.strip()
         original_endpoint = endpoint
-        #parse endpoint's parameters
+        # parse endpoint's parameters
         endpoint = endpoint.split("?", 1)
-        endpoint, endpoint_parameters = (endpoint[0], endpoint[1]) if len(endpoint) == 2 else (endpoint[0], None)
+        endpoint, endpoint_parameters = (
+            endpoint[0], endpoint[1]) if len(endpoint) == 2 else (
+            endpoint[0], None)
         endpoint_parameters = endpoint_parameters.split("&") if endpoint_parameters else None
-        endpoint_parameters = dict([(p.split("=", 1)[0].upper(), p.split("=", 1)) for p in endpoint_parameters] if endpoint_parameters else [])
+        endpoint_parameters = dict([(p.split("=", 1)[0].upper(), p.split("=", 1))
+                                    for p in endpoint_parameters] if endpoint_parameters else [])
 
-        #get target_crs
+        # get target_crs
         target_crs = None
         if service_type == "WFS":
-            target_crs = [endpoint_parameters.get(k)[1] for k in ["SRSNAME"] if k in endpoint_parameters]
+            target_crs = [endpoint_parameters.get(k)[1]
+                          for k in ["SRSNAME"] if k in endpoint_parameters]
         elif service_type in ["WMS", "GWC"]:
-            target_crs = [endpoint_parameters.get(k)[1] for k in ["SRS","CRS"] if k in endpoint_parameters]
+            target_crs = [
+                endpoint_parameters.get(k)[1] for k in [
+                    "SRS", "CRS"] if k in endpoint_parameters]
 
         if target_crs:
             target_crs = target_crs[0].upper()
         else:
             target_crs = self.crs.upper() if self.crs else None
 
-        #transform the bbox between coordinate systems, if required
+        # transform the bbox between coordinate systems, if required
         bbox = self.bbox or []
         if bbox:
             if target_crs != self.crs:
@@ -403,24 +429,46 @@ class Record(models.Model):
                     bbox[0], bbox[1] = pyproj.transform(p1, p2, bbox[0], bbox[1])
                     bbox[2], bbox[3] = pyproj.transform(p1, p2, bbox[2], bbox[3])
                 except Exception as e:
-                    raise ValidationError("Transform the bbox of layer({0}) from crs({1}) to crs({2}) failed.{3}".format(self.identifier, self.crs, target_crs, str(e)))
+                    raise ValidationError(
+                        "Transform the bbox of layer({0}) from crs({1}) to crs({2}) failed.{3}".format(
+                            self.identifier, self.crs, target_crs, str(e)))
 
             if service_type == "WFS":
-                #to limit the returned features, shrink the original bbox to 10 percent
+                # to limit the returned features, shrink the original bbox to 10 percent
                 percent = 0.1
-                shrinked_min = lambda min, max :(max - min) / 2 - (max - min) * percent / 2
-                shrinked_max = lambda min, max :(max - min) / 2 + (max - min) * percent / 2
-                shrinked_bbox = [shrinked_min(bbox[0], bbox[2]), shrinked_min(bbox[1], bbox[3]), shrinked_max(bbox[0], bbox[2]), shrinked_max(bbox[1], bbox[3])]
+
+                def shrinked_min(min, max):
+                    return (max - min) / 2 - (max - min) * percent / 2
+
+                def shrinked_max(min, max):
+                    return (max - min) / 2 + (max - min) * percent / 2
+
+                shrinked_bbox = [
+                    shrinked_min(
+                        bbox[0], bbox[2]), shrinked_min(
+                        bbox[1], bbox[3]), shrinked_max(
+                        bbox[0], bbox[2]), shrinked_max(
+                        bbox[1], bbox[3])]
         else:
             shrinked_bbox = None
 
-        bbox2str = lambda bbox, service, version: ', '.join(str(c) for c in bbox) if service != "WFS" or version == "1.0.0" else ", ".join([str(c) for c in [bbox[1], bbox[0], bbox[3], bbox[2]]])
+        def bbox2str(
+            bbox,
+            service,
+            version): return ', '.join(
+            str(c) for c in bbox) if service != "WFS" or version == "1.0.0" else ", ".join(
+            [
+                str(c) for c in [
+                    bbox[1],
+                    bbox[0],
+                    bbox[3],
+                    bbox[2]]])
 
         if service_type == "WFS":
             kvp = {
-                "SERVICE":"WFS", 
-                "REQUEST":"GetFeature", 
-                "VERSION":service_version, 
+                "SERVICE": "WFS",
+                "REQUEST": "GetFeature",
+                "VERSION": service_version,
             }
             parameters = {}
             if self.crs:
@@ -450,42 +498,42 @@ class Record(models.Model):
         elif service_type == "WMS":
             size = self.overview_image_size
             kvp = {
-                "SERVICE":"WMS", 
-                "REQUEST":"GetMap", 
-                "VERSION":service_version, 
-                "LAYERS":self.identifier, 
-                ("SRS", "CRS"):self.crs.upper(), 
-                "WIDTH":size[0],
-                "HEIGHT":size[1],
-                "FORMAT":"image/png"
+                "SERVICE": "WMS",
+                "REQUEST": "GetMap",
+                "VERSION": service_version,
+                "LAYERS": self.identifier,
+                ("SRS", "CRS"): self.crs.upper(),
+                "WIDTH": size[0],
+                "HEIGHT": size[1],
+                "FORMAT": "image/png"
             }
 
             parameters = {
-                "crs":target_crs, 
-                "format":endpoint_parameters["FORMAT"][1] if "FORMAT" in endpoint_parameters else kvp["FORMAT"], 
+                "crs": target_crs,
+                "format": endpoint_parameters["FORMAT"][1] if "FORMAT" in endpoint_parameters else kvp["FORMAT"],
             }
             if bbox:
                 kvp["BBOX"] = bbox2str(bbox, service_type, service_version)
         elif service_type == "GWC":
             service_type = "WMS"
             kvp = {
-                "SERVICE":"WMS", 
-                "REQUEST":"GetMap", 
-                "VERSION":service_version, 
-                "LAYERS":self.identifier, 
-                ("SRS", "CRS"):self.crs.upper(), 
-                "WIDTH":1024, 
-                "HEIGHT":1024, 
-                "FORMAT":"image/png"
+                "SERVICE": "WMS",
+                "REQUEST": "GetMap",
+                "VERSION": service_version,
+                "LAYERS": self.identifier,
+                ("SRS", "CRS"): self.crs.upper(),
+                "WIDTH": 1024,
+                "HEIGHT": 1024,
+                "FORMAT": "image/png"
             }
             parameters = {
-                "crs": target_crs, 
-                "format":endpoint_parameters["FORMAT"][1] if "FORMAT" in endpoint_parameters else kvp["FORMAT"], 
-                "width":endpoint_parameters["WIDTH"][1] if "WIDTH" in endpoint_parameters else kvp["WIDTH"], 
-                "height":endpoint_parameters["HEIGHT"][1] if "HEIGHT" in endpoint_parameters else kvp["HEIGHT"], 
+                "crs": target_crs,
+                "format": endpoint_parameters["FORMAT"][1] if "FORMAT" in endpoint_parameters else kvp["FORMAT"],
+                "width": endpoint_parameters["WIDTH"][1] if "WIDTH" in endpoint_parameters else kvp["WIDTH"],
+                "height": endpoint_parameters["HEIGHT"][1] if "HEIGHT" in endpoint_parameters else kvp["HEIGHT"],
             }
             if not bbox:
-                #bbox is null, use australian bbox
+                # bbox is null, use australian bbox
                 bbox = [108.0000, -45.0000, 155.0000, -10.0000]
                 p1 = pyproj.Proj(init="EPSG:4326")
                 p2 = pyproj.Proj(init=target_crs)
@@ -501,9 +549,11 @@ class Record(models.Model):
         else:
             raise Exception("Unknown service type({})".format(service_type))
 
-        is_exist = lambda k: any([n.upper() in endpoint_parameters for n in (k if isinstance(k, tuple) or isinstance(k, list) else [k])])
-        
-        querystring = "&".join(["{}={}".format(k[0] if isinstance(k, tuple) or isinstance(k, list) else k, v) for k, v in kvp.items() if not is_exist(k)  ])
+        def is_exist(k): return any([n.upper() in endpoint_parameters for n in (
+            k if isinstance(k, tuple) or isinstance(k, list) else [k])])
+
+        querystring = "&".join(["{}={}".format(k[0] if isinstance(k, tuple) or isinstance(
+            k, list) else k, v) for k, v in kvp.items() if not is_exist(k)])
         if querystring:
             if original_endpoint[-1] in ("?", "&"):
                 link = "{}{}".format(original_endpoint, querystring)
@@ -513,19 +563,20 @@ class Record(models.Model):
                 link = "{}?{}".format(original_endpoint, querystring)
         else:
             link = original_endpoint
-        
-        #get the endpoint after removing ows related parameters
+
+        # get the endpoint after removing ows related parameters
         if endpoint_parameters:
-            is_exist = lambda k: any([ any([k == key.upper() for key in item_key]) if isinstance(item_key, tuple) or isinstance(item_key, list) else k == item_key.upper()  for item_key in kvp ])
-            endpoint_querystring = "&".join(["{}={}".format(*v) for k, v in endpoint_parameters.items() if not is_exist(k)  ])
+            def is_exist(k): return any([any([k == key.upper() for key in item_key]) if isinstance(
+                item_key, tuple) or isinstance(item_key, list) else k == item_key.upper() for item_key in kvp])
+            endpoint_querystring = "&".join(["{}={}".format(*v)
+                                             for k, v in endpoint_parameters.items() if not is_exist(k)])
             if endpoint_querystring:
                 endpoint = "{}?{}".format(endpoint, endpoint_querystring)
 
-        #schema =  '{{"protocol":"OGC:{0}", "linkage":"{1}", "version":"{2}"}}'.format(service_type.upper(), endpoint, service_version)
         schema = {
-            "protocol":"OGC:{}".format(service_type.upper()), 
-            "linkage":endpoint, 
-            "version":service_version, 
+            "protocol": "OGC:{}".format(service_type.upper()),
+            "linkage": endpoint,
+            "version": service_version,
         }
         schema.update(parameters)
 
@@ -541,22 +592,22 @@ class Record(models.Model):
 
         for style in self.styles.all():
             style_links.append(Record.generate_style_link(style))
-            
+
         return self.update_links(ows_links + style_links)
 
     @staticmethod
     def generate_style_link(style):
         """
-        Return a string style link 
+        Return a string style link
         """
-        #schema =  '{{"protocol":"application/{0}", "name":"{1}", "default":"{2}", "linkage":"{3}/media/"}}'.format(style.format.lower(), style.name, style.default, settings.BASE_URL)
         schema = {
-            "protocol" : "application/{}".format(style.format.lower()), 
-            "name": style.name, 
-            "default": style.default, 
-            "linkage":"{}/media/".format(settings.BASE_URL)
+            "protocol": "application/{}".format(style.format.lower()),
+            "name": style.name,
+            "default": style.default,
+            "linkage": "{}/media/".format(settings.BASE_URL)
         }
-        return 'None\tNone\t{0}\t{1}/media/{2}'.format(json.dumps(schema,sort_keys=True), settings.BASE_URL, style.content)
+        return 'None\tNone\t{0}\t{1}/media/{2}'.format(json.dumps(
+            schema, sort_keys=True), settings.BASE_URL, style.content)
 
     @staticmethod
     def format_links(resources):
@@ -573,7 +624,7 @@ class Record(models.Model):
             pos += 1
         return links
 
-    def update_links(self,resources):
+    def update_links(self, resources):
         """
         update links if changed
         resources: a array of string links including ows links and style links
@@ -594,7 +645,7 @@ class Record(models.Model):
         if not exist, return None
         """
         return self.default_style("SLD")
-    
+
     @property
     def lyr(self):
         """
@@ -602,7 +653,7 @@ class Record(models.Model):
         if not exist, return None
         """
         return self.default_style("LYR")
-    
+
     @property
     def qml(self):
         """
@@ -610,13 +661,13 @@ class Record(models.Model):
         if not exist, return None
         """
         return self.default_style("QML")
-    
+
     def default_style(self, format):
         try:
             return self.styles.get(format=format, default=True)
         except Style.DoesNotExist:
             return None
-        
+
     """
     Used to check the default style
     for a particular format. If it does
@@ -624,6 +675,7 @@ class Record(models.Model):
     the default
     Return the configured default style; otherwise return None
     """
+
     def set_default_style(self, format):
         default_style = self.default_style(format)
         if default_style:
@@ -631,14 +683,14 @@ class Record(models.Model):
         else:
             style = None
             try:
-                #no default style is configured, try to get the builtin one as the default style
+                # no default style is configured, try to get the builtin one as the default style
                 style = self.styles.get(format=format, name=Style.BUILTIN)
-            except:
-                #no builtin style  try to get the first added one as the default style
+            except BaseException:
+                # no builtin style  try to get the first added one as the default style
                 style = self.styles.filter(format=format).order_by("name").first()
             if style:
                 style.default = True
-                setattr(style,"triggered_default_style_setting",True)
+                setattr(style, "triggered_default_style_setting", True)
                 style.save(update_fields=["default"])
                 return style
             else:
@@ -649,16 +701,18 @@ class Record(models.Model):
         """
         Return the overview image size based on default size and bbox
         """
-        default_size = (600,600)
+        default_size = (600, 600)
         if self.bbox:
-            if (default_size[0] / default_size[1]) > math.fabs((self.bbox[2] - self.bbox[0]) / (self.bbox[3] - self.bbox[1])):
-                return (int(default_size[1] * math.fabs((self.bbox[2] - self.bbox[0]) / (self.bbox[3] - self.bbox[1]))),default_size[1])
+            if (default_size[0] / default_size[1]) > math.fabs((self.bbox[2] -
+                                                                self.bbox[0]) / (self.bbox[3] - self.bbox[1])):
+                return (int(default_size[1] * math.fabs((self.bbox[2] -
+                                                         self.bbox[0]) / (self.bbox[3] - self.bbox[1]))), default_size[1])
             else:
-                return (default_size[0],int(default_size[0] * math.fabs((self.bbox[3] - self.bbox[1]) / (self.bbox[2] - self.bbox[0]))))
+                return (default_size[0], int(
+                    default_size[0] * math.fabs((self.bbox[3] - self.bbox[1]) / (self.bbox[2] - self.bbox[0]))))
         else:
             return default_size
 
-    
     def delete(self, using=None):
         if self.active:
             raise ValidationError("Can not delete the active record ({}).".format(self.identifier))
@@ -670,6 +724,7 @@ class Record(models.Model):
 
     class Meta:
         ordering = ['identifier']
+
 
 class RecordEventListener(object):
     @receiver(pre_save, sender=Record)
@@ -690,24 +745,25 @@ class RecordEventListener(object):
                         update_fields.append("modified")
         """
         pass
-    
 
-def styleFilePath(instance,filename):
-    return "catalogue/styles/{}_{}.{}".format(instance.record.identifier.replace(':','_'),instance.name,instance.format.lower())
+
+def styleFilePath(instance, filename):
+    return "catalogue/styles/{}_{}.{}".format(instance.record.identifier.replace(
+        ':', '_'), instance.name, instance.format.lower())
+
 
 class Style(models.Model):
     BUILTIN = "builtin"
     FORMAT_CHOICES = (
-        ('SLD', 'SLD'), 
-        ('QML', 'QML'), 
+        ('SLD', 'SLD'),
+        ('QML', 'QML'),
         ('LYR', 'LAYER')
     )
-    record = models.ForeignKey(Record, related_name='styles')
+    record = models.ForeignKey(Record, on_delete=models.PROTECT, related_name='styles')
     name = models.CharField(max_length=255)
     format = models.CharField(max_length=3, choices=FORMAT_CHOICES)
     default = models.BooleanField(default=False)
-    content = models.FileField(upload_to=styleFilePath,storage=OverwriteStorage())
-    #active = models.BooleanField(default=True)
+    content = models.FileField(upload_to=styleFilePath, storage=OverwriteStorage())
 
     @property
     def identifier(self):
@@ -734,15 +790,16 @@ class Style(models.Model):
         if not self.pk or self.name == Style.BUILTIN:
             return False
         return True
-            
+
     def delete(self, using=None):
         if self.name == Style.BUILTIN:
             raise ValidationError("Can not delete builtin style.")
         else:
             super(Style, self).delete(using)
 
-    def __unicode__(self):
+    def __str__(self):
         return self.name
+
 
 class StyleEventListener(object):
     @staticmethod
@@ -769,65 +826,65 @@ class StyleEventListener(object):
                 break
             index += 1
         if style_index == -1:
-            #not exist
             style_links.append(link)
             links = ows_links + style_links
             instance.record.update_links(links)
         elif style_index >= 0:
             links = ows_links + style_links
             instance.record.update_links(links)
-    
+
     @staticmethod
     @receiver(post_delete, sender=Style)
     def remove_style_link(sender, instance, **kwargs):
         style_links = instance.record.style_links
         ows_links = instance.record.ows_links
-        #remote deleted style's link
+        # remote deleted style's link
         for link in style_links:
             parts = re.split("\t", link)
             r = json.loads(parts[2])
             if r['name'] == instance.name and instance.format.lower() in r['protocol']:
                 style_links.remove(link)
-    
+
         links = ows_links + style_links
         instance.record.update_links(links)
-    
+
     @staticmethod
     @receiver(pre_save, sender=Style)
-    def clear_previous_default_style (sender, instance, **kwargs):
-        if getattr(instance,"triggered_default_style_setting",False):
+    def clear_previous_default_style(sender, instance, **kwargs):
+        if getattr(instance, "triggered_default_style_setting", False):
             return
-        update_fields=kwargs.get("update_fields", None)
+        update_fields = kwargs.get("update_fields", None)
         if not instance.pk or not update_fields or "default" in update_fields:
             if instance.default:
-                #The style will be set as the default style
+                # The style will be set as the default style
                 cur_default_style = instance.record.default_style(instance.format)
                 if cur_default_style and cur_default_style.pk != instance.pk:
-                    #The current default style is not the saving style, reset the current default style's default to false
-                    cur_default_style.default=False
-                    setattr(cur_default_style,"triggered_default_style_setting",True)
+                    # The current default style is not the saving style, reset the current
+                    # default style's default to false
+                    cur_default_style.default = False
+                    setattr(cur_default_style, "triggered_default_style_setting", True)
                     cur_default_style.save(update_fields=["default"])
-    
+
     @staticmethod
     @receiver(post_save, sender=Style)
-    def set_default_style_on_update (sender, instance, **kwargs):
-        if getattr(instance,"triggered_default_style_setting",False):
+    def set_default_style_on_update(sender, instance, **kwargs):
+        if getattr(instance, "triggered_default_style_setting", False):
             return
-        update_fields=kwargs.get("update_fields", None)
+        update_fields = kwargs.get("update_fields", None)
         if not instance.pk or not update_fields or "default" in update_fields:
             if not instance.default:
-                #The saving style is not the default style
+                # The saving style is not the default style
                 default_style = instance.record.default_style(instance.format)
-                if not default_style :
+                if not default_style:
                     instance.record.set_default_style(instance.format)
-    
+
     @staticmethod
     @receiver(post_delete, sender=Style)
     def set_default_style_on_delete(sender, instance, **kwargs):
         if instance.default:
-            #deleted style is the default style, reset the default style
+            # deleted style is the default style, reset the default style
             instance.record.set_default_style(instance.format)
-    
+
     @staticmethod
     @receiver(post_delete, sender=Style)
     def remove_style_file(sender, instance, **kwargs):
@@ -837,7 +894,7 @@ class StyleEventListener(object):
         if instance.content:
             if os.path.isfile(instance.content.path):
                 os.remove(instance.content.path)
-    
+
 
 class Application(models.Model):
     """
@@ -853,7 +910,6 @@ class Application(models.Model):
     def get_view_name(app):
         return "catalogue_record_{}".format(app)
 
-
     @property
     def records_view(self):
         return Application.get_view_name(self.name)
@@ -864,37 +920,47 @@ class Application(models.Model):
     def __str__(self):
         return self.name
 
+
 class ApplicationEventListener(object):
     @staticmethod
     @receiver(pre_delete, sender=Application)
     def _pre_delete(sender, instance, **args):
-        #remove the view for this application
+        # remove the view for this application
         try:
             cursor = connection.cursor()
             cursor.execute("DROP VIEW {} CASCADE".format(instance.records_view))
-        except:
-            #drop failed, maybe the view does not exist, ignore the exception
+        except BaseException:
+            # drop failed, maybe the view does not exist, ignore the exception
             connection._rollback()
-
 
     @staticmethod
     @receiver(pre_save, sender=Application)
     def _pre_save(sender, instance, **args):
-        #create a view for this application
+        # create a view for this application
         try:
             cursor = connection.cursor()
-            cursor.execute("CREATE OR REPLACE VIEW {} AS SELECT r.* FROM catalogue_application a join catalogue_applicationlayer l on a.id = l.application_id join catalogue_record r on l.layer_id = r.id WHERE a.name = '{}' and r.active order by l.order, r.identifier".format(instance.records_view, instance.name))
+            cursor.execute(
+                "CREATE OR REPLACE VIEW {} AS SELECT r.* FROM catalogue_application a join catalogue_applicationlayer l on a.id = l.application_id join catalogue_record r on l.layer_id = r.id WHERE a.name = '{}' and r.active order by l.order, r.identifier".format(
+                    instance.records_view,
+                    instance.name))
         except Exception as e:
-            #create view failed
+            # create view failed
             connection._rollback()
             raise ValidationError(e)
+
 
 class ApplicationLayer(models.Model):
     """
     The relationship between application and layer
     """
-    application = models.ForeignKey(Application, blank=False, null=False)
-    layer = models.ForeignKey(Record, null=False, blank=False, limit_choices_to={"active":True})
+    application = models.ForeignKey(Application, on_delete=models.PROTECT, blank=False, null=False)
+    layer = models.ForeignKey(
+        Record,
+        on_delete=models.PROTECT,
+        null=False,
+        blank=False,
+        limit_choices_to={
+            "active": True})
     order = models.PositiveIntegerField(blank=False, null=False)
 
     def __str__(self):
@@ -903,5 +969,3 @@ class ApplicationLayer(models.Model):
     class Meta:
         unique_together = (('application', 'layer'))
         ordering = ['application', 'order', 'layer']
-
-
